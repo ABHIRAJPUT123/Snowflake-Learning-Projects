@@ -1,65 +1,81 @@
-# Snowflake Table Types, Time Travel & Fail-safe
+# Snowflake RBAC & Dynamic Data Masking
 
-A beginner-friendly Snowflake SQL practice project covering:
+This project demonstrates role-based access control (RBAC) and column-level dynamic data masking in Snowflake.
 
-- Permanent, transient, and temporary tables
-- Database and schema retention settings
-- Time Travel queries after update and delete
-- Restoring a dropped table with `UNDROP TABLE`
-- Fail-safe behavior
-- Zero-copy cloning
-- Storage and compute separation (conceptual notes)
+## Topics covered
 
-## Files
+- Create a database and customer table.
+- Create an `ANALYST` role and grant read access.
+- Create and attach an email masking policy.
+- Create `NORTH_MANAGER` and `EAST_MANAGER` roles.
+- Apply conditional masking to the numeric `AMOUNT` column.
+- Test results by switching the active role.
 
-- `snowflake_table_types_time_travel.sql` — complete SQL practice script.
+## Project file
+
+- `snowflake_rbac_dynamic_masking.sql` — complete SQL script with section-by-section comments.
 
 ## How to run
 
-1. Open Snowflake and create a SQL Worksheet.
-2. Open `snowflake_table_types_time_travel.sql`.
-3. Check that your active role has permission to create databases, schemas, and tables.
-4. If you want to use a warehouse, uncomment `use warehouse compute_wh;` and replace `compute_wh` with a warehouse that exists in your account.
-5. Run the script from top to bottom in one session. Keep the session open until the temporary-table section and final verification have completed.
+1. Open a Snowflake SQL Worksheet.
+2. Open `snowflake_rbac_dynamic_masking.sql`.
+3. Run the script from top to bottom in one worksheet/session.
+4. Ensure a warehouse is active for SELECT queries.
+5. Replace `ABHISHEKVSLIFE` with your actual Snowflake username if different.
+6. Run as `ACCOUNTADMIN` or a role with the required privileges.
+
+The script creates objects in `DEMO_DB`. `CREATE OR REPLACE` can replace demo tables and policies with the same names.
+
+## Expected results
+
+### Email masking
+
+The `EMAIL_MASK` policy is attached to `CUSTOMERS.EMAIL`.
+
+- `ANALYST` sees a partially masked email, e.g. `a*****@regex.com`.
+- Other active roles see `*****`.
+
+### Manager amount masking
+
+The `AMOUNT_MASK` policy is attached to `RAW_BASE.AMOUNT`.
+
+- `NORTH_MANAGER` sees all amounts.
+- `EAST_MANAGER` sees amounts only where `DIRECTION = 'east'`.
+- Other roles receive `NULL` for the amount.
+
+**Why NULL instead of `***`?** `AMOUNT` is a `NUMBER` column, so its masking policy must return a compatible numeric type. Returning text such as `***` from a numeric masking policy causes a return-type mismatch. For a visual `***`, use a separate presentation layer (for example, a view that casts the value to text); do not return text from this numeric policy.
 
 ## Important notes
 
-- `CREATE OR REPLACE` can replace an existing object. This script uses it for clearly named learning/demo tables.
-- The standard Time Travel retention period is 1 day. Retention greater than 1 day for permanent objects requires Enterprise Edition or higher.
-- Transient and temporary tables support 0 or 1 day of Time Travel and have no Fail-safe.
-- Permanent tables have a separate, non-configurable 7-day Fail-safe period after Time Travel ends. Fail-safe recovery is performed by Snowflake on a best-effort basis; it is not a user-accessible extension of Time Travel.
-- A temporary table is available only in the session in which it was created. Do not close the worksheet/session before completing the temporary-table examples.
-- The transient database section is separate from the permanent database section.
-
-## Storage vs compute
-
-- **Storage** is where Snowflake keeps table data. You do not need to create another copy of the same table just because more users run queries.
-- **Compute** is the virtual warehouse that executes SQL. You can resize a warehouse or use additional warehouses to provide more processing capacity.
-- Separating storage and compute lets teams scale query processing independently from the amount of data stored. Compute usage still costs money, so suspend warehouses when they are not needed.
+- `USE ROLE` changes the active role in the current session. The role must be granted to the current user.
+- Granting a role does not automatically activate it.
+- The `ANALYST` role receives `CREATE MASKING POLICY` as a permission-learning example; `ACCOUNTADMIN` creates and attaches the policies in this script.
+- `CURRENT_ROLE()` is used by the policies, so test by switching to the intended role before running SELECT.
 
 ## GitHub push commands
 
-Run these commands in PowerShell from the project folder after creating an empty repository on GitHub:
+Run these commands in PowerShell from this project folder after creating an empty GitHub repository:
 
 ```powershell
 git init
 git add .
-git commit -m "Add Snowflake table types and Time Travel practice"
+git commit -m "Add Snowflake RBAC and dynamic masking project"
 git branch -M main
 git remote add origin https://github.com/YOUR-USERNAME/YOUR-REPOSITORY.git
 git push -u origin main
 ```
 
-Replace the remote URL with your actual GitHub repository URL. If `origin` already exists, use:
+Replace the URL with your actual repository URL.
+
+If `origin` already exists, update it instead:
 
 ```powershell
 git remote set-url origin https://github.com/YOUR-USERNAME/YOUR-REPOSITORY.git
 git push -u origin main
 ```
 
-## Official Snowflake references
+## Official Snowflake documentation
 
-- [Temporary and transient tables](https://docs.snowflake.com/en/user-guide/tables-temp-transient)
-- [Time Travel](https://docs.snowflake.com/en/user-guide/data-time-travel)
-- [Fail-safe](https://docs.snowflake.com/en/user-guide/data-failsafe)
-- [Storage costs](https://docs.snowflake.com/en/user-guide/cost-understanding-data-storage)
+- [Dynamic Data Masking](https://docs.snowflake.com/en/user-guide/security-column-ddm-intro)
+- [CREATE MASKING POLICY](https://docs.snowflake.com/en/sql-reference/sql/create-masking-policy)
+- [Access control overview](https://docs.snowflake.com/en/user-guide/security-access-control-overview)
