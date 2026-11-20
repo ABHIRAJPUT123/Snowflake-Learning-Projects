@@ -1,81 +1,135 @@
-# Snowflake RBAC & Dynamic Data Masking
+# Snowflake CSV to S3 Project
 
-This project demonstrates role-based access control (RBAC) and column-level dynamic data masking in Snowflake.
+**Project date:** 20 November 2026
 
-## Topics covered
+## Project objective
 
-- Create a database and customer table.
-- Create an `ANALYST` role and grant read access.
-- Create and attach an email masking policy.
-- Create `NORTH_MANAGER` and `EAST_MANAGER` roles.
-- Apply conditional masking to the numeric `AMOUNT` column.
-- Test results by switching the active role.
+Load a CSV file from Amazon S3 into Snowflake, preserve the raw data in a Bronze table, create a typed Silver table, and export the Silver table back to Amazon S3 as a CSV file.
 
-## Project file
+## Architecture
 
-- `snowflake_rbac_dynamic_masking.sql` — complete SQL script with section-by-section comments.
+```text
+Amazon S3
+  nyasnowflake/csv/pos_batch_jan_apr.csv
+          |
+          | COPY INTO table
+          v
+Snowflake: NEWSNOWFLAKE_DB.CSV_SCHEMA.BRONZE_CSV
+          |
+          | CREATE TABLE AS SELECT (CTAS)
+          v
+Snowflake: NEWSNOWFLAKE_DB.CSV_SCHEMA.SILVER_CSV
+          |
+          | COPY INTO @stage
+          v
+Amazon S3
+  nyasnowflake/csv/export/
+```
+
+## Source file
+
+- Bucket: `nyasnowflake`
+- Region: `ap-southeast-2` (Asia Pacific – Sydney)
+- Source key: `csv/pos_batch_jan_apr.csv`
+- Source stage: `NEWSNOWFLAKE_DB.JSON_SCHEMA.NYASNOW_STAGE`
+
+## Snowflake objects
+
+| Object | Name | Purpose |
+|---|---|---|
+| Database | `NEWSNOWFLAKE_DB` | Project database |
+| Schema | `CSV_SCHEMA` | CSV project objects |
+| External stage | `NYASNOW_STAGE` | Existing S3 connection in `JSON_SCHEMA` |
+| File format | `CSV_FORMAT` | Reads comma-separated CSV and skips its header |
+| Bronze table | `BRONZE_CSV` | Raw source values stored as VARCHAR |
+| Silver table | `SILVER_CSV` | Typed, analysis-ready data |
+
+## Before running
+
+This script reuses an existing external stage. It does **not** create an AWS IAM user, storage integration, or stage, and it does not contain AWS credentials.
+
+Confirm that:
+
+1. `NEWSNOWFLAKE_DB` exists.
+2. `COMPUTE_WH` exists and is available.
+3. `NYASNOW_STAGE` exists at `NEWSNOWFLAKE_DB.JSON_SCHEMA`.
+4. The stage points to `s3://nyasnowflake/`.
+5. The stage has the required S3 read and write permissions.
+6. `pos_batch_jan_apr.csv` exists under the S3 `csv/` prefix.
+
+If your account uses different database, warehouse, stage, bucket, or file names, update the SQL before running it.
 
 ## How to run
 
-1. Open a Snowflake SQL Worksheet.
-2. Open `snowflake_rbac_dynamic_masking.sql`.
-3. Run the script from top to bottom in one worksheet/session.
-4. Ensure a warehouse is active for SELECT queries.
-5. Replace `ABHISHEKVSLIFE` with your actual Snowflake username if different.
-6. Run as `ACCOUNTADMIN` or a role with the required privileges.
+1. Open a Snowflake worksheet.
+2. Open `snowflake_csv_s3_project.sql`.
+3. Run the statements in order, section by section.
+4. Check the output after each `COPY INTO`.
+5. Verify the exported object with the final `LIST` command or in the AWS S3 console.
 
-The script creates objects in `DEMO_DB`. `CREATE OR REPLACE` can replace demo tables and policies with the same names.
+## Important concepts
 
-## Expected results
+### Bronze layer
 
-### Email masking
+The Bronze table stores source fields in their original text form (`VARCHAR`). It is the raw landing layer and should be retained so the data can be reprocessed.
 
-The `EMAIL_MASK` policy is attached to `CUSTOMERS.EMAIL`.
+### Silver layer
 
-- `ANALYST` sees a partially masked email, e.g. `a*****@regex.com`.
-- Other active roles see `*****`.
+The Silver table uses meaningful column names and appropriate types, including `DATE`, `TIME`, and numeric types. In this project it is created with CTAS:
 
-### Manager amount masking
+`CREATE TABLE ... AS SELECT ...`
 
-The `AMOUNT_MASK` policy is attached to `RAW_BASE.AMOUNT`.
+CTAS creates the table and populates it from the SELECT query in one operation.
 
-- `NORTH_MANAGER` sees all amounts.
-- `EAST_MANAGER` sees amounts only where `DIRECTION = 'east'`.
-- Other roles receive `NULL` for the amount.
+### COPY INTO directions
 
-**Why NULL instead of `***`?** `AMOUNT` is a `NUMBER` column, so its masking policy must return a compatible numeric type. Returning text such as `***` from a numeric masking policy causes a return-type mismatch. For a visual `***`, use a separate presentation layer (for example, a view that casts the value to text); do not return text from this numeric policy.
+- `COPY INTO <table> FROM @stage` loads data from a stage/S3 into a Snowflake table.
+- `COPY INTO @stage FROM <table>` unloads data from a Snowflake table to a stage/S3.
 
-## Important notes
+## Header handling
 
-- `USE ROLE` changes the active role in the current session. The role must be granted to the current user.
-- Granting a role does not automatically activate it.
-- The `ANALYST` role receives `CREATE MASKING POLICY` as a permission-learning example; `ACCOUNTADMIN` creates and attaches the policies in this script.
-- `CURRENT_ROLE()` is used by the policies, so test by switching to the intended role before running SELECT.
+The source CSV has a header row. The reproducible script uses `SKIP_HEADER = 1` in `CSV_FORMAT`, so the header is not loaded as a transaction record. The coaching session initially used a zero-header-skip format, which loaded the header as one extra Bronze row; the Silver query then filtered that row. This clean script avoids that extra row at the Bronze layer.
 
-## GitHub push commands
+Expected transaction count from the coaching session: **39,521**.
 
-Run these commands in PowerShell from this project folder after creating an empty GitHub repository:
+## Source columns
 
-```powershell
-git init
-git add .
-git commit -m "Add Snowflake RBAC and dynamic masking project"
-git branch -M main
-git remote add origin https://github.com/YOUR-USERNAME/YOUR-REPOSITORY.git
-git push -u origin main
-```
+| Position | Source field | Silver type |
+|---:|---|---|
+| 1 | transaction_id | VARCHAR |
+| 2 | store_id | VARCHAR |
+| 3 | store_name | VARCHAR |
+| 4 | store_city | VARCHAR |
+| 5 | store_region | VARCHAR |
+| 6 | cashier_id | VARCHAR |
+| 7 | customer_id | VARCHAR |
+| 8 | transaction_date | DATE |
+| 9 | transaction_time | TIME |
+| 10 | product_sku | VARCHAR |
+| 11 | product_name | VARCHAR |
+| 12 | category | VARCHAR |
+| 13 | subcategory | VARCHAR |
+| 14 | quantity | NUMBER(10,0) |
+| 15 | unit_price | NUMBER(10,2) |
+| 16 | discount_pct | NUMBER(5,2) |
+| 17 | total_amount | NUMBER(10,2) |
+| 18 | payment_method | VARCHAR |
+| 19 | loyalty_points | NUMBER(10,0) |
 
-Replace the URL with your actual repository URL.
+## Expected S3 export
 
-If `origin` already exists, update it instead:
+The SQL unload command writes the Silver table to this S3 prefix:
 
-```powershell
-git remote set-url origin https://github.com/YOUR-USERNAME/YOUR-REPOSITORY.git
-git push -u origin main
-```
+`s3://nyasnowflake/csv/export/`
 
-## Official Snowflake documentation
+Requested output name:
 
-- [Dynamic Data Masking](https://docs.snowflake.com/en/user-guide/security-column-ddm-intro)
-- [CREATE MASKING POLICY](https://docs.snowflake.com/en/sql-reference/sql/create-masking-policy)
-- [Access control overview](https://docs.snowflake.com/en/user-guide/security-access-control-overview)
+`SILVER_CSV_20261120.CSV`
+
+Snowflake unload output naming can be affected by unload options and generated file naming. Verify the exact object name using the `LIST` command and AWS S3 console.
+
+## Security
+
+- Never commit AWS access keys, secret keys, passwords, or private tokens.
+- This repository intentionally contains no credentials.
+- Use an appropriately configured Snowflake stage and least-privilege AWS permissions.
